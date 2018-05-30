@@ -3,22 +3,321 @@
   <head>
     <title>TaiwanExpedition</title>
     <meta charset="UTF-8" />
-    <script src="https://unpkg.com/vue"></script>
-    <script src="https://unpkg.com/jquery"></script>
-    <script src="https://unpkg.com/d3"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jquery@3.3.1/dist/jquery.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/d3@5.4.0/dist/d3.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/d3-geo@1.10.0/dist/d3-geo.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/topojson@3.0.2/dist/topojson.min.js"></script>
+    <script>
+      function body_key(e) {
+        if (e.keyCode == 27) reset();
+      };
+    </script>
+    <style id="formenu" type="text/css">
+    </style>
   </head>
-  <body>
+  <body onkeyup="body_key(event)" oncontextmenu="reset(event)">
     <div id="app">
-      {{ message }}
+      <span class="tooltip" id="town-tip">古亭區</span>
+      <span class="tooltip" id="ct-tip">臺中縣</span>
+      <div id="menu">
+        <p><span class="title">臺中縣古亭區</span> <span class="buttons">⌕&nbsp;✖</span></p>
+        <hr>
+        <ul id="levels">
+        </ul>
+      </div>
+      <svg id="map" viewBox="0 0 900 900"></svg>
     </div>
 
     <script>
-      var app = new Vue({
-        el: '#app',
-        data: {
-          message: 'Hello Vue!'
+      var counties = {"V":"臺東縣", "T":"屏東縣", "P":"雲林縣", "N":"彰化縣", "K":"苗栗縣", "J":"新竹縣", "B":"臺中市", "Q":"嘉義縣", "E":"高雄市", "G":"宜蘭縣", "Z":"連江縣", "W":"金門縣", "M":"南投縣", "U":"花蓮縣", "X":"澎湖縣", "C":"基隆市", "A":"臺北市", "F":"新北市", "D":"臺南市", "H":"桃園市", "I":"嘉義市", "O":"新竹市"};
+      var small = ["Z", "W", "X", "C", "A", "I", "O"];
+      var tshiftx = ["B", "Q", "P", "N", "K", "W", "O", "V"];
+      var tshifty = ["C", "N", "V"];
+      var levels = [{'name': "曾居住", 'points': 7, 'color': "#e84c3d"},
+        {'name': "曾工作、就學", 'points': 6, 'color': "#df683a"},
+        {'name': "曾住宿", 'points': 5, 'color': "#d58337"},
+        {'name': "曾觀光", 'points': 4, 'color': "#f3c218"},
+        {'name': "曾停留", 'points': 3, 'color': "#30cc70"},
+        {'name': "曾駐足", 'points': 2, 'color': "#33b2a6"},
+        {'name': "曾行經", 'points': 1, 'color': "#3598db"},
+        {'name': "沒去過", 'points': 0, 'color': "#ddd"}];
+
+      var levels_p = p => levels.find(n => n.points == p);
+
+      $("#levels").append(levels.map(function (level) {
+        return $(`<li id=level${level.points}>${level.name}</li>`);
+      }));
+
+      $("#formenu").append(levels.map(function (level) {
+        return `#level${level.points}:hover {
+  background: ${level.color};
+  color: black;
+}`
+      }));
+
+      var width = 900, height = 900, path;
+      $("#map").attr("width", width).attr("height", height);
+      var svg = d3.select("#map") //.attr("transform", "translate(500, 50) rotate(65)")
+      var active = d3.select(null), scale, translate;
+      svg.append("rect")
+        .attr("width", width).attr("height", height)
+        .style("fill", "#9dc3fb").attr("z", 0)
+        .on("click", reset);
+      var tw = svg.append("g").attr("id", "tw").attr("z", -1);
+
+      d3.json("data/townships.json").then(function(data) {
+        var features = topojson.feature(data, data.objects["TOWN_MOI_1070516"]).features;
+        path = d3.geoPath().projection(d3.geoMercator().center([119.5, 24.55]).scale(12000).angle(-65)
+          .clipExtent([[0,0],[900,900]]));
+
+        tw.selectAll("path").data(features).enter().append("path").classed("towns", true)
+          .style("stroke-width", .3).style("stroke", "grey").style("fill", "white")
+          .style("cursor", "pointer")
+          .attr("d", path)
+          .attr("id", d => d.properties.TOWNID).attr("data-countyid", d => d.properties.COUNTYID)
+          .on("click", town_clicked) .on("mouseover", town_hover) .on("mouseout", town_out)
+          .attr("data-townname", d => d.properties.TOWNNAME).attr("data-towneng", d => d.properties.TOWNENG).attr("data-countyname", d => d.properties.COUNTYNAME);
+
+        for (ct_id in counties) {
+          tw.append("path")
+            .datum(topojson.merge(data, data.objects["TOWN_MOI_1070516"].geometries.filter(p => p.properties.COUNTYID == ct_id))).attr("d", path)
+            .style("stroke-width", .5).style("stroke", "black").style("fill-opacity", "0")
+            .on("click", ct_clicked) .on("mouseover", ct_hover) .on("mouseout", ct_out)
+            .attr("id", ct_id).attr("data-name", counties[ct_id]);
+        };
+      });
+
+      function town_hover() {
+        var town = this;
+        $(this).css("fill-opacity", "0.8")
+
+        $("#town-tip").html($(town).attr("data-townname")).show().css({
+          "opacity": 1,
+          "transition-property": "all",
+          "transition-duration": "0.3s",
+          "font-size": "16px",
+          "padding": "7px",
+          "line-height": "12px",
+          "border-size": "3px",
+          "border-radius": "8px",
+          "left": function(){
+            if (false) {
+              return path.centroid(town.__data__)[0]*scale + translate[0] - $("#town-tip").width()/2 + 30;
+            } else {
+              return path.centroid(town.__data__)[0]*scale + translate[0] - $("#town-tip").width()/2;
+            }
+          }(),
+          "top": function(){
+            if (false) {
+              return path.centroid(town.__data__)[1]*scale + translate[1] - $("#town-tip").height()/2 + 35;
+            } else {
+              return path.centroid(town.__data__)[1]*scale + translate[1] - $("#town-tip").height()/2;
+            }
+          }()
+        });
+      };
+
+      function town_out() {
+        $(this).css("fill-opacity", "1");
+      };
+
+      function town_clicked() {
+        console.log(this.id, $(this).attr("data-countyname") + $(this).attr("data-townname"));
+        $("#menu .title").html($(this).attr("data-countyname") + $(this).attr("data-townname"));
+        $("#menu").show();
+        $("#menu").css({
+          "left": d3.event.pageX,
+          "top": d3.event.pageY,
+        });
+      };
+
+      function ct_hover() {
+        if (active.size() == 0) {
+          var ct = this;
+          d3.select(ct).style("fill-opacity", 0.1);
+
+          $("#ct-tip").html($(ct).attr("data-name")).show().css({
+            "opacity": 1,
+            "transition-property": "all",
+            "transition-duration": "0.3s",
+            "font-size": "16px",
+            "padding": "7px",
+            "line-height": "12px",
+            "border-size": "3px",
+            "border-radius": "8px",
+            "left": function(){
+              if (small.includes(ct.id)) {
+                return path.centroid(ct.__data__)[0] - $("#ct-tip").width()/2 + 30;
+              } else {
+                return path.centroid(ct.__data__)[0] - $("#ct-tip").width()/2;
+              }
+            }(),
+            "top": function(){
+              if (small.includes(ct.id)) {
+                return path.centroid(ct.__data__)[1] - $("#ct-tip").height()/2 + 35;
+              } else {
+                return path.centroid(ct.__data__)[1] - $("#ct-tip").height()/2;
+              }
+            }()
+          });
         }
-      })
+      };
+
+      function ct_out() {
+        if (active.size() == 0) {
+          d3.select(this).style("fill-opacity", 0);
+
+          $("#ct-tip").hide();
+        }
+      };
+
+      function ct_clicked(d) {
+        active.classed("active", false)
+          .style("fill-opacity", 0)
+          .style("pointer-events", "all");
+        active = d3.select(this).classed("active", true)
+          .style("fill-opacity", 0.1)
+          .style("pointer-events", "none");
+        $("#menu").hide();
+
+        var bounds = path.bounds(d),
+          dx = bounds[1][0] - bounds[0][0],
+          dy = bounds[1][1] - bounds[0][1],
+          x = (bounds[0][0] + bounds[1][0]) / 2,
+          y = (bounds[0][1] + bounds[1][1]) / 2;
+        scale = .9 / Math.max(dx / width, dy / height),
+          translate = [width / 2 - scale * x, height / 2 - scale * y];
+
+        tw.transition()
+          .duration(750)
+          .style("stroke-width", 1.5 / scale + "px")
+          .attr("transform", "translate(" + translate + ") scale(" + scale + ")");
+
+        $("#ct-tip").html($(this).attr("data-name")).css({
+          "opacity": 1,
+          "transition-property": "all",
+          "transition-duration": "0.3s",
+          "font-size": "72px",
+          "padding": "30px",
+          "line-height": "54px",
+          "border-radius": "16px",
+          "border-size": "5px",
+          "top": (tshiftx.includes(this.id) ? 780 : 8), "left": (tshifty.includes(this.id) ? 900 - 284 : 8)
+        });
+      };
+
+      function reset(e) {
+        active.classed("active", false)
+          .style("fill-opacity", 0)
+          .style("pointer-events", "all");
+        active = d3.select(null);
+
+        tw.transition()
+          .duration(750)
+          .style("stroke-width", "1.5px")
+          .attr("transform", "");
+
+        $(".tooltip").css({
+          "opacity": 0,
+        }).on("transitionend", function(){$(this).hide();});
+        $("#menu").hide();
+
+        if (typeof e !== 'undefined') {
+          e.preventDefault();
+          return false;
+        }
+      };
     </script>
+
+    <style type="text/css">
+#map {
+  border-style: solid;
+}
+
+        #app {
+          position: relative;
+        }
+
+        #town-tip {
+          position: absolute;
+          display: block;
+          text-align: center;
+          line-height: 12px;
+          padding: 7px;
+          font-size: 16px;
+          font-family: "Microsoft JhengHei";
+          font-weight: 800;
+          background: #fafafa;
+          border: 3px solid;
+          border-radius: 8px;
+          display: none;
+          pointer-events: none;
+        }
+
+        #ct-tip {
+          position: absolute;
+          text-align: center;
+          line-height: 12px;
+          padding: 7px;
+          font-size: 16px;
+          font-family: "Microsoft JhengHei";
+          font-weight: 800;
+          background: #fafafa;
+          border: 3px solid;
+          border-radius: 8px;
+          display: none;
+          pointer-events: none;
+        }
+
+        #menu {
+          position: fixed;
+          top: 100px; left: 100px;
+          border: 1px solid #B2B2B2;
+          width: 180px;
+          background: #F9F9F9;
+          border: 1px solid;
+          border-color: #888;
+          border-radius: 8px;
+          box-shadow: 1px 1px 8px rgba(0, 0, 0, 0.8);
+          display: none;
+        }
+
+        #menu p {
+          margin-top: 10px;
+          padding: 10px 10px 0 13px;
+          line-height: 0;
+          font-size: 18px;
+          font-family: "Microsoft JhengHei";
+          font-weight: 800;
+        }
+
+        #levels {
+          list-style: none;
+          margin: 0px;
+          padding: 0 10px 6px 10px;
+          font-size: 16px;
+          color: #333333;
+        }
+
+        #levels li, #levels p {
+          padding: 3px;
+        }
+
+        #menu .buttons {
+          float: right;
+        }
+
+        #levels :hover{
+          border-radius: 2px;
+        }
+
+        hr {
+          width: 88%;
+          background-color: #E4E4E4;
+          border-color: #E4E4E4;
+          color: #E4E4E4;
+        }
+
+    </style>
   </body>
 </html>
