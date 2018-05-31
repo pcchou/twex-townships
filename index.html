@@ -59,8 +59,9 @@
       var levels_p = p => levels.find(n => n.points == p);
 
       $("#levels").append(levels.map(function (level) {
-        return $(`<li id=level${level.points}>${level.name}</li>`);
-      }));
+        return $(`<li id=level${level.points} name=${level.points}>${level.name}</li>`);
+      }))
+      .find("li").on("click", level_clicked);
 
       $("#formenu").append(levels.map(function (level) {
         return `#level${level.points}:hover, #level${level.points}.checked {
@@ -123,6 +124,29 @@
         };
       });
 
+      function levelchg(lv) {
+       var level = levels_p(lv);
+        if (level.points) {
+          $(cur_town).css('fill', level.color);
+          cur_state[cur_town.id] = {'points': level.points}
+          $("#menu li").removeClass("checked");
+          $(`#level${lv}`).addClass("checked");
+        } else {
+          $(cur_town).css('fill', "white");
+          delete cur_state[cur_town.id];
+          $("#menu li").removeClass("checked");
+        }
+
+        if (!$.isEmptyObject(cur_state)) {
+          var h = pako.deflate(JSON.stringify(cur_state), {'to': 'string'});
+          window.location.hash = btoa(h);
+        } else window.location.hash = "";
+      }
+
+      function level_clicked(e) {
+        levelchg(parseInt($(this).attr("name")));
+      }
+
       function town_hover() {
         var town = this;
         $(this).css("filter", "brightness(90%)");
@@ -165,10 +189,9 @@
           "top": d3.event.pageY,
         });
 
+        $("#menu li").removeClass("checked");
         if (!!cur_state[cur_town.id]) {
           $("#menu").find(`#level${cur_state[cur_town.id]["points"]}`).addClass("checked");
-        } else {
-          $("#menu li").removeClass("checked");
         }
       };
 
