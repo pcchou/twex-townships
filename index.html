@@ -6,16 +6,27 @@
     <script src="https://cdn.jsdelivr.net/npm/jquery@3.3.1/dist/jquery.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/d3@5.4.0/dist/d3.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/d3-geo@1.10.0/dist/d3-geo.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/pako@1.0.6/dist/pako.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/topojson@3.0.2/dist/topojson.min.js"></script>
     <script>
       function body_key(e) {
-        if (e.keyCode == 27) reset();
+        if (e.keyCode == 27) {
+          if ($("#menu").css("display") == "none") reset();
+          else $("#menu").hide();
+        }
       };
+
+      function body_right(e) {
+        if ($("#menu").css("display") == "none") reset();
+        else $("#menu").hide();
+        e.preventDefault();
+        return false;
+      }
     </script>
     <style id="formenu" type="text/css">
     </style>
   </head>
-  <body onkeyup="body_key(event)" oncontextmenu="reset(event)">
+  <body onkeyup="body_key(event)" oncontextmenu="body_right(event)">
     <div id="app">
       <span class="tooltip" id="town-tip">古亭區</span>
       <span class="tooltip" id="ct-tip">臺中縣</span>
@@ -29,6 +40,8 @@
     </div>
 
     <script>
+      const decoder = new TextDecoder('utf8');
+
       var counties = {"V":"臺東縣", "T":"屏東縣", "P":"雲林縣", "N":"彰化縣", "K":"苗栗縣", "J":"新竹縣", "B":"臺中市", "Q":"嘉義縣", "E":"高雄市", "G":"宜蘭縣", "Z":"連江縣", "W":"金門縣", "M":"南投縣", "U":"花蓮縣", "X":"澎湖縣", "C":"基隆市", "A":"臺北市", "F":"新北市", "D":"臺南市", "H":"桃園市", "I":"嘉義市", "O":"新竹市"};
       var small = ["Z", "W", "X", "C", "A", "I", "O"];
       var tshiftx = ["B", "Q", "P", "N", "K", "W", "O", "V"];
@@ -41,6 +54,7 @@
         {'name': "曾駐足", 'points': 2, 'color': "#33b2a6"},
         {'name': "曾行經", 'points': 1, 'color': "#3598db"},
         {'name': "沒去過", 'points': 0, 'color': "#ddd"}];
+      var cur_state = {};
 
       var levels_p = p => levels.find(n => n.points == p);
 
@@ -49,16 +63,33 @@
       }));
 
       $("#formenu").append(levels.map(function (level) {
-        return `#level${level.points}:hover {
+        return `#level${level.points}:hover, #level${level.points}.checked {
   background: ${level.color};
   color: black;
 }`
       }));
 
+      if (window.location.hash) {
+        try {
+          var j = pako.inflate(atob(decodeURI(window.location.hash.slice(1))), {'to': 'string'})
+          console.log(j);
+          cur_state = JSON.parse(j);
+        } catch (err) { console.log(err);
+          try {
+            var j = atob(decodeURI(window.location.hash.slice(1)));
+            console.log(j);
+            cur_state = JSON.parse(j);
+          } catch (err) { console.log(err);
+            try {var j = decodeURI(window.location.hash.slice(1));
+              console.log(j);
+              cur_state = JSON.parse(j);
+            } catch (err) { console.log(err); }}};
+      };
+
       var width = 900, height = 900, path;
       $("#map").attr("width", width).attr("height", height);
       var svg = d3.select("#map") //.attr("transform", "translate(500, 50) rotate(65)")
-      var active = d3.select(null), scale, translate;
+      var active = d3.select(null), scale, translate, cur_town;
       svg.append("rect")
         .attr("width", width).attr("height", height)
         .style("fill", "#9dc3fb").attr("z", 0)
@@ -78,23 +109,26 @@
           .on("click", town_clicked) .on("mouseover", town_hover) .on("mouseout", town_out)
           .attr("data-townname", d => d.properties.TOWNNAME).attr("data-towneng", d => d.properties.TOWNENG).attr("data-countyname", d => d.properties.COUNTYNAME);
 
+
+        for (k in cur_state) {
+          $(`#${k}`).css('fill', levels_p(cur_state[k].points).color);
+        };
+
         for (ct_id in counties) {
           tw.append("path")
             .datum(topojson.merge(data, data.objects["TOWN_MOI_1070516"].geometries.filter(p => p.properties.COUNTYID == ct_id))).attr("d", path)
             .style("stroke-width", .5).style("stroke", "black").style("fill-opacity", "0")
             .on("click", ct_clicked) .on("mouseover", ct_hover) .on("mouseout", ct_out)
-            .attr("id", ct_id).attr("data-name", counties[ct_id]);
+            .attr("id", ct_id).attr("data-name", counties[ct_id]).classed("counties", true);
         };
       });
 
       function town_hover() {
         var town = this;
-        $(this).css("fill-opacity", "0.8")
+        $(this).css("filter", "brightness(90%)");
 
         $("#town-tip").html($(town).attr("data-townname")).show().css({
           "opacity": 1,
-          "transition-property": "all",
-          "transition-duration": "0.3s",
           "font-size": "16px",
           "padding": "7px",
           "line-height": "12px",
@@ -118,28 +152,33 @@
       };
 
       function town_out() {
-        $(this).css("fill-opacity", "1");
+        $(this).css("filter", "");
       };
 
       function town_clicked() {
         console.log(this.id, $(this).attr("data-countyname") + $(this).attr("data-townname"));
+        cur_town = this;
         $("#menu .title").html($(this).attr("data-countyname") + $(this).attr("data-townname"));
         $("#menu").show();
         $("#menu").css({
           "left": d3.event.pageX,
           "top": d3.event.pageY,
         });
+
+        if (!!cur_state[cur_town.id]) {
+          $("#menu").find(`#level${cur_state[cur_town.id]["points"]}`).addClass("checked");
+        } else {
+          $("#menu li").removeClass("checked");
+        }
       };
 
       function ct_hover() {
         if (active.size() == 0) {
           var ct = this;
-          d3.select(ct).style("fill-opacity", 0.1);
+          d3.select(ct).style("fill-opacity", 0.2);
 
           $("#ct-tip").html($(ct).attr("data-name")).show().css({
             "opacity": 1,
-            "transition-property": "all",
-            "transition-duration": "0.3s",
             "font-size": "16px",
             "padding": "7px",
             "line-height": "12px",
@@ -172,11 +211,11 @@
       };
 
       function ct_clicked(d) {
+        d3.selectAll($('.counties').not(this)).transition().style("fill-opacity", 0.6).duration(750);
         active.classed("active", false)
-          .style("fill-opacity", 0)
           .style("pointer-events", "all");
         active = d3.select(this).classed("active", true)
-          .style("fill-opacity", 0.1)
+          .style("fill-opacity", 0)
           .style("pointer-events", "none");
         $("#menu").hide();
 
@@ -195,8 +234,6 @@
 
         $("#ct-tip").html($(this).attr("data-name")).show().css({
           "opacity": 1,
-          "transition-property": "all",
-          "transition-duration": "0.3s",
           "font-size": "72px",
           "padding": "30px",
           "line-height": "54px",
@@ -211,6 +248,7 @@
           .style("fill-opacity", 0)
           .style("pointer-events", "all");
         active = d3.select(null);
+        d3.selectAll('.counties').transition().style("fill-opacity", 0).duration(750);
 
         tw.transition()
           .duration(750)
@@ -221,11 +259,6 @@
           "opacity": 0,
         }).on("transitionend", function(){$(this).hide();}).off();
         $("#menu").hide();
-
-        if (typeof e !== 'undefined') {
-          e.preventDefault();
-          return false;
-        }
       };
     </script>
 
@@ -242,6 +275,8 @@
           position: absolute;
           text-align: center;
           line-height: 12px;
+          transition-property: all,
+          transition-duration: 0.3s,
           padding: 7px;
           font-size: 16px;
           font-family: "Microsoft JhengHei";
@@ -256,6 +291,8 @@
         #ct-tip {
           position: absolute;
           text-align: center;
+          transition-property: all,
+          transition-duration: 0.3s,
           line-height: 12px;
           padding: 7px;
           font-size: 16px;
@@ -291,6 +328,7 @@
         }
 
         #levels {
+          cursor: pointer;
           list-style: none;
           margin: 0px;
           padding: 0 10px 6px 10px;
@@ -306,7 +344,7 @@
           float: right;
         }
 
-        #levels :hover{
+        #levels :hover, #levels .checked{
           border-radius: 2px;
         }
 
