@@ -193,7 +193,7 @@
           .style("stroke-width", 1.5 / scale + "px")
           .attr("transform", "translate(" + translate + ") scale(" + scale + ")");
 
-        $("#ct-tip").html($(this).attr("data-name")).css({
+        $("#ct-tip").html($(this).attr("data-name")).show().css({
           "opacity": 1,
           "transition-property": "all",
           "transition-duration": "0.3s",
@@ -219,7 +219,7 @@
 
         $(".tooltip").css({
           "opacity": 0,
-        }).on("transitionend", function(){$(this).hide();});
+        }).on("transitionend", function(){$(this).hide();}).off();
         $("#menu").hide();
 
         if (typeof e !== 'undefined') {
@@ -240,7 +240,6 @@
 
         #town-tip {
           position: absolute;
-          display: block;
           text-align: center;
           line-height: 12px;
           padding: 7px;
